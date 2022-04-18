@@ -1,0 +1,313 @@
+#define TA			// This is a TA script
+
+#include "sfxtype.h"
+#include "exptype.h"
+
+piece  base, turret, sleeve, rtbarrel, ltbarrel, lempslv, lempbarrel, rempslv, rempbarrel, rlauncher,
+flare1, flare2, flare3, flare4, flare5, flare7;
+
+static-var  moveSpeed, currentSpeed, animSpeed, restore_delay, currentBarrel, currentLauncher;
+
+#define SIG_MOVE 1
+#define SIG_AIM_1			2
+#define SIG_AIM_2			4
+#define SIG_AIM_3			8
+#define SIG_AIM_4			16
+
+UnitSpeed()
+{
+	while(TRUE)
+	{
+		currentSpeed = (get CURRENT_SPEED) * 20 / moveSpeed;
+		if (currentSpeed < 4) currentSpeed = 4;
+		animSpeed = 1800 / currentSpeed;
+		sleep 142;
+	}
+}
+
+RockUnit(anglex, anglez)
+{
+	turn base to x-axis anglex speed <50.005495>;
+	turn base to z-axis <0> - anglez speed <50.005495>;
+	wait-for-turn base around z-axis;
+	wait-for-turn base around x-axis;
+	turn base to z-axis <0.000000> speed <20.000000>;
+	turn base to x-axis <0.000000> speed <20.000000>;
+}
+
+#define BASEPIECE base
+#define HITSPEED <45.0>
+//how 'heavy' the unit is, on a scale of 1-10
+#define UNITSIZE 10
+#define MAXTILT 100
+
+#include "unit_hitbyweaponid_and_smoke.h"
+
+Create()
+{
+	hide flare1;
+	hide flare2;
+	hide flare3;
+	hide flare4;
+	hide flare5;
+	hide flare7;
+	moveSpeed = get (MAX_SPEED);
+	animSpeed = 100;
+	currentBarrel = 0;
+	currentLauncher = 0;
+	restore_delay = 3000;
+}
+
+StartMoving()
+{
+  signal SIG_MOVE;
+  set-signal-mask SIG_MOVE;
+	start-script UnitSpeed();
+}
+
+StopMoving()
+{
+  signal SIG_MOVE;
+}
+
+SetMaxReloadTime(time)
+{
+	restore_delay = time * 2;
+}
+
+static-var  Stunned;
+ExecuteRestoreAfterDelay()
+{
+    if (Stunned)
+	{
+        return (1);
+    }
+    set-signal-mask 0;
+	turn turret to y-axis <0.000000> speed <45>;
+	turn sleeve to x-axis <0.000000> speed <15.000000>;
+	turn lempslv to y-axis <0> speed <90>;
+	turn rempslv to y-axis <0> speed <90>;
+	turn rlauncher to x-axis <0> speed <45>;
+}
+
+SetStunned(State)
+{
+    Stunned = State;
+	if (!Stunned)
+	{
+	    start-script ExecuteRestoreAfterDelay();
+	}
+}
+
+RestoreAfterDelay()
+{
+	sleep restore_delay;
+	start-script ExecuteRestoreAfterDelay();
+}
+
+SweetSpot(piecenum)
+{
+	piecenum = base;
+}
+
+//Weapon 1: Double Heavy Tesla Cannon
+//===================================
+AimWeapon1(heading, pitch)
+{
+	signal SIG_AIM_1;
+	set-signal-mask SIG_AIM_1;
+	turn turret to y-axis heading speed <45.000000>;
+	turn sleeve to x-axis <0.000000> - pitch speed <15.000000>;
+	wait-for-turn turret around y-axis;
+	wait-for-turn sleeve around x-axis;
+	start-script RestoreAfterDelay();
+	return (1);
+}
+
+FireWeapon1()
+{
+	if( currentBarrel == 0 )
+	{
+		move ltbarrel to z-axis [-2.400000] speed [500.000000];
+		spin ltbarrel around z-axis speed <360> accelerate <120>;
+		emit-sfx 1024 + 0 from flare2;
+		sleep 100;
+		wait-for-move ltbarrel along z-axis;
+		move ltbarrel to z-axis [0.000000] speed [3.000000];
+		wait-for-move ltbarrel along z-axis;
+		stop-spin ltbarrel around z-axis decelerate <15>;
+	}
+	if( currentBarrel == 1 )
+	{
+		move rtbarrel to z-axis [-2.400000] speed [500.000000];
+		spin rtbarrel around z-axis speed <360> accelerate <120>;
+		emit-sfx 1024 + 0 from flare1;
+		sleep 100;
+		wait-for-move rtbarrel along z-axis;
+		move rtbarrel to z-axis [0.000000] speed [3.000000];
+		wait-for-move rtbarrel along z-axis;
+		stop-spin rtbarrel around z-axis decelerate <15>;
+	}
+	currentBarrel = !currentBarrel;
+}
+
+AimFromWeapon1(piecenum)
+{
+	piecenum = sleeve;
+}
+
+QueryWeapon1(piecenum)
+{
+	if (currentBarrel) piecenum = flare1;
+	if (!currentBarrel) piecenum = flare2;
+}
+
+//Weapon 2: EMP Missile Launcher
+//===================================
+AimWeapon2(heading, pitch)
+{
+	signal SIG_AIM_2;
+	set-signal-mask SIG_AIM_2;
+	turn turret to y-axis heading speed <45.000000>;
+	turn rlauncher to x-axis <0.000000> - pitch speed <30.000000>;
+	wait-for-turn turret around y-axis;
+	wait-for-turn rlauncher around x-axis;
+	start-script RestoreAfterDelay();
+	return (1);
+}
+
+FireWeapon2()
+{
+	if( currentLauncher == 0 )
+	{
+		emit-sfx 1024 + 0 from flare3;
+		sleep 100;
+	}
+	if( currentLauncher == 1 )
+	{
+		emit-sfx 1024 + 0 from flare4;
+		sleep 100;
+	}
+	currentLauncher = !currentLauncher;
+}
+
+AimFromWeapon2(piecenum)
+{
+	if (currentLauncher) piecenum = flare3;
+	if (!currentLauncher) piecenum = flare4;
+}
+
+QueryWeapon2(piecenum)
+{
+	if (currentLauncher) piecenum = flare3;
+	if (!currentLauncher) piecenum = flare4;
+}
+
+//Weapon 3: Left EMP
+//===================================
+AimWeapon3(heading, pitch)
+{
+	signal SIG_AIM_3;
+	set-signal-mask SIG_AIM_3;
+	turn lempslv to y-axis heading speed <120>;
+	wait-for-turn lempslv around y-axis;
+	start-script RestoreAfterDelay();
+	return (1);
+}
+
+FireWeapon3()
+{
+	move lempbarrel to z-axis [-1.00000] speed [100.000000];
+	emit-sfx 1024 + 0 from flare5;
+	sleep 100;
+	wait-for-move lempbarrel along z-axis;
+	move lempbarrel to z-axis [0.000000] speed [3.000000];
+	wait-for-move lempbarrel along z-axis;
+}
+
+AimFromWeapon3(piecenum)
+{
+	piecenum = lempslv;
+}
+
+QueryWeapon3(piecenum)
+{
+	piecenum = flare5;
+}
+
+//Weapon 3: Right EMP
+//===================================
+AimWeapon4(heading, pitch)
+{
+	signal SIG_AIM_4;
+	set-signal-mask SIG_AIM_4;
+	turn rempslv to y-axis heading speed <120>;
+	wait-for-turn rempslv around y-axis;
+	start-script RestoreAfterDelay();
+	return (1);
+}
+
+FireWeapon4()
+{
+	move rempbarrel to z-axis [-2.400000] speed [100.000000];	
+	emit-sfx 1024 + 0 from flare7;
+	sleep 100;
+	wait-for-move rempbarrel along z-axis;
+	move rempbarrel to z-axis [1.000000] speed [3.000000];
+	wait-for-move rempbarrel along z-axis;
+}
+
+AimFromWeapon4(piecenum)
+{
+	piecenum = rempslv;
+}
+
+QueryWeapon4(piecenum)
+{
+	piecenum = flare7;
+}
+
+Killed(severity, corpsetype)
+{
+	if( severity <= 25 )
+	{
+		corpsetype = 1 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type BITMAPONLY | NOHEATCLOUD;
+		explode sleeve type BITMAPONLY | NOHEATCLOUD;
+		explode ltbarrel type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode rtbarrel type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		//explode flare type BITMAPONLY | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	if( severity <= 50 )
+	{
+		corpsetype = 2 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode sleeve type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode ltbarrel type FALL | NOHEATCLOUD;
+		explode rtbarrel type FALL | NOHEATCLOUD;
+		//explode flare type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	if( severity <= 99 )
+	{
+		corpsetype = 3 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type EXPLODE_ON_HIT | SMOKE | FALL | NOHEATCLOUD;
+		explode sleeve type SMOKE | FALL | NOHEATCLOUD;
+		explode ltbarrel type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode rtbarrel type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		//explode flare type SMOKE | FALL | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	corpsetype = 3 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode sleeve type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode ltbarrel type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode rtbarrel type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		//explode flare type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+	return corpsetype;
+}

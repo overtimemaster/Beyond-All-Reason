@@ -1,0 +1,6 @@
+*.db
+/.git
+/.svn
+.vscode/
+.project
+*.code-workspace

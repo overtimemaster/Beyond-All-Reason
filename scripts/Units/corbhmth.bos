@@ -1,0 +1,334 @@
+#define TA			// This is a TA script
+
+#include "sfxtype.h"
+#include "exptype.h"
+
+piece  base, vent, turret, sleeve, barrel1, flare1, barrel2, flare2,
+       barrel3, flare3;
+
+static-var  bAiming, Static_Var_2, gun_1, statechg_DesiredState, statechg_StateChanging;
+
+// Signal definitions
+#define SIG_AIM				2
+
+
+SmokeVents()
+{
+	signal 4;
+	set-signal-mask 4;
+	while( TRUE )
+	{
+		emit-sfx 257 from vent;
+		sleep 1000;
+	}
+}
+
+Go()
+{
+	start-script SmokeVents();
+	set ACTIVATION to 100;
+}
+
+Stop()
+{
+	signal 4;
+	set ACTIVATION to 0;
+}
+
+InitState()
+{
+	statechg_DesiredState = TRUE;
+	statechg_StateChanging = FALSE;
+}
+
+RequestState(requestedstate, currentstate)
+{
+	if( statechg_StateChanging )
+	{
+		statechg_DesiredState = requestedstate;
+		return (0);
+	}
+	statechg_StateChanging = TRUE;
+	currentstate = statechg_DesiredState;
+	statechg_DesiredState = requestedstate;
+	while( statechg_DesiredState != currentstate )
+	{
+		if( statechg_DesiredState == 0 )
+		{
+			call-script Go();
+			currentstate = 0;
+		}
+		if( statechg_DesiredState == 1 )
+		{
+			call-script Stop();
+			currentstate = 1;
+		}
+	}
+	statechg_StateChanging = FALSE;
+}
+
+Create()
+{
+	hide vent;
+	hide flare1;
+	hide flare2;
+	hide flare3;
+	bAiming = FALSE;
+	gun_1 = FALSE;
+	Static_Var_2 = 12000;
+	while( get BUILD_PERCENT_LEFT )
+	{
+		sleep 250;
+	}
+	call-script InitState();
+}
+
+#define SMOKEPIECE base
+#include "smokeunit_thread_nohit.h"
+
+Activate()
+{
+	start-script RequestState(0);
+}
+
+Deactivate()
+{
+	start-script RequestState(1);
+}
+
+ActivateAfterDelay()
+{
+	sleep 5000;
+	set-signal-mask 0;
+	start-script RequestState(0);
+}
+
+ResetFiretube()
+{
+	set-signal-mask SIG_AIM;
+	sleep Static_Var_2;
+	bAiming = FALSE;
+}
+
+//-------------------------------CONSTANT ACCELERATION TURRET TURNING---------------------------
+// MaxVelocity and acceleration are in degrees per frame (not second!)
+// Jerk is the minimum velocity of the turret
+// A high precision requirement can result in overshoots if desired 
+// (c) CC BY NC ND Beherith mysterme@gmail.com
+#define MAX_AIMY1_VELOCITY <1.20>
+#define AIMY1_ACCELERATION <0.10>
+#define AIMY1_JERK <0.2>
+#define AIMY1_PRECISION <0.5>
+#define AIMY1_RESTORE_SPEED <1.0>
+
+static-var aimy1delta, timetozero, deceleratethreshold;
+static-var aimy1velocity, aimy1target, aimy1position, gameFrame;
+
+AimWeapon1(heading, pitch)
+{
+
+	signal SIG_AIM;
+	set-signal-mask SIG_AIM;
+	start-script RequestState(1);
+	
+	//We can do this any time
+	turn sleeve to x-axis <0.000000> - pitch speed <25.000000>;
+	
+	aimy1target = heading;
+	aimy1delta = aimy1target - aimy1position;
+
+	
+	while( ( get ABS(aimy1delta) > AIMY1_PRECISION ) OR (get ABS(aimy1velocity) > AIMY1_JERK)){
+		if (gameFrame != get(GAME_FRAME)){ //this is to make sure we dont get double-called, as previous aimweapon thread runs before new aimweaponthread can signal-kill previous one 
+			gameFrame = get(GAME_FRAME);
+	
+			//Clamp aimy1position and aimy1delta between <-180>;<180>
+			while (aimy1position >  <180>) aimy1position = aimy1position - <360>;
+			while (aimy1position < <-180>) aimy1position = aimy1position + <360>;
+			while (aimy1delta >  <180>) aimy1delta = aimy1delta - <360>;
+			while (aimy1delta < <-180>) aimy1delta = aimy1delta + <360>;
+		
+			//number of frames required to decelerate to 0
+			timetozero = get ABS(aimy1velocity) / AIMY1_ACCELERATION;
+			
+			//distance from target where we should start decelerating, always 'positive'
+			//pos = t * v - (t*(t-1)*a/2)
+			deceleratethreshold = timetozero * (get ABS(aimy1velocity)) - (timetozero * (timetozero - 1) * AIMY1_ACCELERATION / 2); 
+			
+			//get PRINT ( aimy1delta , deceleratethreshold, aimy1velocity, timetozero );
+			
+			if (get ABS(aimy1delta) <= deceleratethreshold){ //we need to decelerate
+				if (aimy1velocity > 0) aimy1velocity = aimy1velocity - AIMY1_ACCELERATION;
+				else 				   aimy1velocity = aimy1velocity + AIMY1_ACCELERATION;
+			}	
+			else //we need to accelerate
+			{
+				if (aimy1delta > 0) aimy1velocity = get MIN(       MAX_AIMY1_VELOCITY, aimy1velocity + AIMY1_ACCELERATION); 
+				else                aimy1velocity = get MAX((-1) * MAX_AIMY1_VELOCITY, aimy1velocity - AIMY1_ACCELERATION);
+			}
+			
+			//Apply jerk at very low velocities
+			if (get ABS(aimy1velocity) < AIMY1_JERK){
+				if ((aimy1delta >        AIMY1_JERK)) aimy1velocity =        AIMY1_JERK;
+				if ((aimy1delta < (-1) * AIMY1_JERK)) aimy1velocity = (-1) * AIMY1_JERK;
+			}
+			
+			aimy1position = aimy1position + aimy1velocity; 
+			turn turret to y-axis aimy1position now;
+			aimy1delta = aimy1target - aimy1position ; 
+		}
+		sleep 30;		
+	} 
+	while( gun_1 )
+	{
+		wait-for-move barrel1 along z-axis;
+		wait-for-move barrel2 along z-axis;
+		wait-for-move barrel3 along z-axis;
+		bAiming = FALSE;
+		gun_1 = FALSE;
+	}
+	
+	aimy1velocity = 0;
+	start-script ResetFiretube();
+	start-script ActivateAfterDelay();
+	return (1);
+}
+
+/*
+AimPrimary(heading, pitch)
+{
+	signal SIG_AIM;
+	set-signal-mask SIG_AIM;
+	start-script RequestState(1);
+	turn turret to y-axis heading speed <25.000000>;
+	turn sleeve to x-axis <0.000000> - pitch speed <25.000000>;
+	wait-for-turn turret around y-axis;
+	wait-for-turn sleeve around x-axis;
+	while( gun_1 )
+	{
+		wait-for-move barrel1 along z-axis;
+		wait-for-move barrel2 along z-axis;
+		wait-for-move barrel3 along z-axis;
+		bAiming = FALSE;
+		gun_1 = FALSE;
+	}
+
+	return (1);
+}*/
+
+FirePrimary()
+{
+	if( bAiming == 0 )
+	{
+	    emit-sfx 1024 + 0 from flare1;
+		move barrel1 to z-axis [-3.001648] now;
+		sleep 100;
+		move barrel1 to z-axis [0.000000] speed [1.000549];
+	}
+	if( bAiming == 1 )
+	{
+	    emit-sfx 1024 + 0 from flare2;
+		move barrel2 to z-axis [-3.001648] now;
+		sleep 100;
+		move barrel2 to z-axis [0.000000] speed [1.000549];
+	}
+	if( bAiming == 2 )
+	{
+		gun_1 = TRUE;
+	    emit-sfx 1024 + 0 from flare3;
+		move barrel3 to z-axis [-3.001648] now;
+		sleep 100;
+		move barrel3 to z-axis [0.000000] speed [1.000549];
+	}
+	++bAiming;
+	if( bAiming == 3 )
+	{
+		bAiming = FALSE;
+	}
+}
+
+QueryPrimary(piecenum)
+{
+	if( bAiming == 0 )
+	{
+		piecenum = flare1;
+	}
+	if( bAiming == 1 )
+	{
+		piecenum = flare2;
+	}
+	if( bAiming == 2 )
+	{
+		piecenum = flare3;
+	}
+}
+
+AimFromPrimary(piecenum)
+{
+	piecenum = sleeve;
+}
+
+SweetSpot(piecenum)
+{
+	piecenum = base;
+}
+
+Killed(severity, corpsetype)
+{
+	if( severity <= 25 )
+	{
+		corpsetype = 1 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type BITMAPONLY | NOHEATCLOUD;
+		explode sleeve type BITMAPONLY | NOHEATCLOUD;
+		explode barrel2 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode flare2 type BITMAPONLY | NOHEATCLOUD;
+		explode barrel3 type BITMAPONLY | NOHEATCLOUD;
+		explode flare3 type BITMAPONLY | NOHEATCLOUD;
+		explode barrel1 type BITMAPONLY | NOHEATCLOUD;
+		explode flare1 type BITMAPONLY | NOHEATCLOUD;
+		explode vent type BITMAPONLY | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	if( severity <= 50 )
+	{
+		corpsetype = 2 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode sleeve type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel2 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode flare2 type FALL | NOHEATCLOUD;
+		explode barrel3 type FALL | NOHEATCLOUD;
+		explode flare3 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel1 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode flare1 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode vent type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	if( severity <= 99 )
+	{
+		corpsetype = 3 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type BITMAPONLY | NOHEATCLOUD;
+		explode sleeve type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel2 type SMOKE | FALL | NOHEATCLOUD;
+		explode flare2 type EXPLODE_ON_HIT | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel3 type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode flare3 type FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel1 type EXPLODE_ON_HIT | SMOKE | FALL | NOHEATCLOUD;
+		explode flare1 type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode vent type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		return(corpsetype);
+	}
+	corpsetype = 3 ;
+		explode base type BITMAPONLY | NOHEATCLOUD;
+		explode turret type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode sleeve type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode barrel2 type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode flare2 type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode barrel3 type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode flare3 type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+		explode barrel1 type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode flare1 type EXPLODE_ON_HIT | FIRE | FALL | NOHEATCLOUD;
+		explode vent type EXPLODE_ON_HIT | FIRE | SMOKE | FALL | NOHEATCLOUD;
+	return corpsetype;
+}
